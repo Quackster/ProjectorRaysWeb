@@ -1,0 +1,19 @@
+{
+  "entries": ["assembly/index.ts"],
+  "targets": {
+    "debug": {
+      "outFile": "build/director.wasm",
+      "sourceMap": true,
+      "debug": true
+    },
+    "release": {
+      "outFile": "build/director.wasm",
+      "optimizeLevel": 3,
+      "shrinkLevel": 1,
+      "noAssert": true
+    }
+  },
+  "options": {
+    "exportRuntime": true
+  }
+}
