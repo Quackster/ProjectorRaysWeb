@@ -15,6 +15,7 @@ import {
     InitialMapChunk, MemoryMapChunk, KeyTableChunk, ConfigChunk,
     CastChunk, CastListChunk, CastMemberChunk
 } from "./Chunk";
+import { Score } from "../score/Score";
 
 // FOURCC constants
 const FOURCC_XFIR: u32 = FOURCC(0x58, 0x46, 0x49, 0x52); // "XFIR" (little-endian RIFX)
@@ -38,6 +39,8 @@ const FOURCC_Lctx: u32 = FOURCC(0x4C, 0x63, 0x74, 0x78); // "Lctx"
 const FOURCC_LctX: u32 = FOURCC(0x4C, 0x63, 0x74, 0x58); // "LctX"
 const FOURCC_Lnam: u32 = FOURCC(0x4C, 0x6E, 0x61, 0x6D); // "Lnam"
 const FOURCC_Lscr: u32 = FOURCC(0x4C, 0x73, 0x63, 0x72); // "Lscr"
+const FOURCC_VWSC: u32 = FOURCC(0x56, 0x57, 0x53, 0x43); // "VWSC" - Score data
+const FOURCC_VWLB: u32 = FOURCC(0x56, 0x57, 0x4C, 0x42); // "VWLB" - Labels
 
 const kRIFXHeaderSize: i32 = 12;
 const kChunkHeaderSize: i32 = 8;
@@ -74,6 +77,7 @@ export class DirectorFile {
     config: ConfigChunk | null = null;
     castList: CastListChunk | null = null;
     casts: CastChunk[] = [];
+    score: Score | null = null;
 
     // Error tracking
     lastError: string = "";
@@ -120,6 +124,9 @@ export class DirectorFile {
         if (!this.readKeyTable()) return false;
         if (!this.readConfig()) return false;
         if (!this.readCasts()) return false;
+
+        // Read score (timeline) if present
+        this.readScore();
 
         return true;
     }
@@ -189,8 +196,9 @@ export class DirectorFile {
         const chunkData = this._stream!.readBytes(<i32>len);
         const chunkStream = new ReadStream(chunkData, this.endianness);
 
-        this.keyTable = new KeyTableChunk();
-        this.keyTable.read(chunkStream);
+        const keyTable = new KeyTableChunk();
+        keyTable.read(chunkStream);
+        this.keyTable = keyTable;
         return true;
     }
 
@@ -214,10 +222,11 @@ export class DirectorFile {
         const chunkData = this._stream!.readBytes(<i32>len);
         const chunkStream = new ReadStream(chunkData, this.endianness);
 
-        this.config = new ConfigChunk();
-        this.config.read(chunkStream);
+        const config = new ConfigChunk();
+        config.read(chunkStream);
+        this.config = config;
 
-        this.version = humanVersion(this.config.directorVersion);
+        this.version = humanVersion(config.directorVersion);
         this.dotSyntax = this.version >= 700;
 
         return true;
@@ -240,12 +249,13 @@ export class DirectorFile {
                 const chunkData = this._stream!.readBytes(<i32>len);
                 const chunkStream = new ReadStream(chunkData, this.endianness);
 
-                this.castList = new CastListChunk();
-                this.castList.read(chunkStream);
+                const castList = new CastListChunk();
+                castList.read(chunkStream);
+                this.castList = castList;
 
                 // Load each cast from the list
-                for (let i: i32 = 0; i < this.castList.entries.length; i++) {
-                    const castEntry = unchecked(this.castList.entries[i]);
+                for (let i: i32 = 0; i < castList.entries.length; i++) {
+                    const castEntry = unchecked(castList.entries[i]);
                     const sectionID = this.findCastSectionID(castEntry.id);
 
                     if (sectionID > 0) {
@@ -267,12 +277,50 @@ export class DirectorFile {
         if (casIdx >= 0) {
             const cast = this.readCastChunk(unchecked(this.chunkInfoIds[casIdx]));
             if (cast !== null) {
+                const config = this.config;
+                const minMember = config !== null ? <i32>config.minMember : 1;
                 cast.populate(
                     internal ? "Internal" : "External",
                     1024,
-                    <i32>this.config!.minMember
+                    minMember
                 );
                 this.casts.push(cast);
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Read the score (timeline) from VWSC chunk
+     */
+    private readScore(): bool {
+        const idx = this.findFirstChunkByFourCC(FOURCC_VWSC);
+        if (idx < 0) {
+            // Score is optional - cast files don't have scores
+            return true;
+        }
+
+        const offset = unchecked(this.chunkInfoOffsets[idx]);
+        const len = unchecked(this.chunkInfoLens[idx]);
+
+        this._stream!.seek(<i32>offset + kChunkHeaderSize);
+        const chunkData = this._stream!.readBytes(<i32>len);
+        const chunkStream = new ReadStream(chunkData, this.endianness);
+
+        const score = new Score();
+        if (score.read(chunkStream, this.version)) {
+            this.score = score;
+
+            // Try to read labels too
+            const labelIdx = this.findFirstChunkByFourCC(FOURCC_VWLB);
+            if (labelIdx >= 0) {
+                const labelOffset = unchecked(this.chunkInfoOffsets[labelIdx]);
+                const labelLen = unchecked(this.chunkInfoLens[labelIdx]);
+                this._stream!.seek(<i32>labelOffset + kChunkHeaderSize);
+                const labelData = this._stream!.readBytes(<i32>labelLen);
+                const labelStream = new ReadStream(labelData, this.endianness);
+                score.readLabels(labelStream);
             }
         }
 
@@ -283,10 +331,11 @@ export class DirectorFile {
      * Find cast section ID from key table
      */
     private findCastSectionID(castID: i32): i32 {
-        if (this.keyTable === null) return -1;
+        const keyTable = this.keyTable;
+        if (keyTable === null) return -1;
 
-        for (let i: i32 = 0; i < this.keyTable.entries.length; i++) {
-            const entry = unchecked(this.keyTable.entries[i]);
+        for (let i: i32 = 0; i < keyTable.entries.length; i++) {
+            const entry = unchecked(keyTable.entries[i]);
             if (entry.castID === castID && entry.fourCC === FOURCC_CAS_) {
                 return entry.sectionID;
             }
@@ -399,6 +448,29 @@ export class DirectorFile {
     getFrameRate(): i32 {
         if (this.config === null) return 0;
         return <i32>this.config!.frameRate;
+    }
+
+    /**
+     * Get frame count from score
+     */
+    getFrameCount(): i32 {
+        if (this.score === null) return 0;
+        return this.score!.getFrameCount();
+    }
+
+    /**
+     * Get channel count from score
+     */
+    getChannelCount(): i32 {
+        if (this.score === null) return 0;
+        return this.score!.getChannelCount();
+    }
+
+    /**
+     * Check if file has a score (timeline)
+     */
+    hasScore(): bool {
+        return this.score !== null;
     }
 }
 

@@ -5,6 +5,10 @@
  */
 
 // Score module - Timeline and channel management
-// TODO: Implement Score parsing from VWSC chunks
 
 export const SCORE_MODULE_VERSION: i32 = 1;
+
+// Export score types
+export { Channel, InkType, SpriteType, ChannelFlags } from "./Channel";
+export { Frame, TransitionType, CastMemberRef } from "./Frame";
+export { Score, Label } from "./Score";

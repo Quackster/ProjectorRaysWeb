@@ -10,8 +10,15 @@
 // Re-export parser module
 export * from "./parser";
 
-// Re-export module version constants
-export { SCORE_MODULE_VERSION } from "./score";
+// Re-export score module
+export {
+    SCORE_MODULE_VERSION,
+    Score, Label,
+    Frame, TransitionType, CastMemberRef,
+    Channel, InkType, SpriteType, ChannelFlags
+} from "./score";
+
+// Re-export other module version constants
 export { LINGO_MODULE_VERSION } from "./lingo";
 export { ASSETS_MODULE_VERSION } from "./assets";
 
