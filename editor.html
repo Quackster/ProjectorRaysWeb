@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProjectorRays Cast Editor</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Editor-specific styles */
+        #editor-section {
+            overflow: hidden;
+        }
+
+        #member-panel {
+            float: left;
+            width: 280px;
+            border: 1px solid #999;
+            background: #f4f4f4;
+        }
+
+        #member-panel h3 {
+            background: #e1e1e1;
+            border-bottom: 1px solid #999;
+            padding: 8px 10px;
+            margin: 0;
+            font-size: 13px;
+        }
+
+        #member-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            height: 400px;
+            overflow-y: auto;
+        }
+
+        #member-list li {
+            padding: 8px 10px;
+            border-bottom: 1px solid #ddd;
+            cursor: pointer;
+        }
+
+        #member-list li:hover {
+            background: #e9f2ff;
+        }
+
+        #member-list li.selected {
+            background: #d6e6ff;
+        }
+
+        #member-list .member-name {
+            display: block;
+            font-weight: bold;
+        }
+
+        #member-list .member-type {
+            display: block;
+            font-size: 10px;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        #edit-panel {
+            margin-left: 292px;
+            border: 1px solid #999;
+            background: #fff;
+        }
+
+        #edit-panel h3 {
+            background: #e1e1e1;
+            border-bottom: 1px solid #999;
+            padding: 8px 10px;
+            margin: 0;
+            font-size: 13px;
+        }
+
+        #edit-form {
+            padding: 15px;
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 4px;
+            font-size: 11px;
+            color: #333;
+        }
+
+        .form-group input[type="text"] {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #999;
+            font-family: Verdana, Tahoma, Arial, sans-serif;
+            font-size: 12px;
+        }
+
+        .form-group .readonly {
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+            padding: 6px 8px;
+            font-size: 12px;
+        }
+
+        #action-buttons {
+            padding: 10px 15px;
+            border-top: 1px solid #ddd;
+            background: #f8f8f8;
+        }
+
+        #action-buttons button {
+            margin-right: 8px;
+        }
+
+        #action-buttons button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Status indicator */
+        #edit-status {
+            font-size: 11px;
+            color: #666;
+            padding: 10px 15px;
+            border-top: 1px solid #ddd;
+        }
+
+        #edit-status.modified {
+            color: #996600;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>ProjectorRays Cast Editor</h1>
+        <p>Edit Adobe Director / Shockwave Cast Files</p>
+    </header>
+
+    <main>
+        <section id="upload-section">
+            <div id="drop-zone">
+                <p>Drag and drop a .cst, .cct, .dxr, or .dir file here</p>
+                <p>or</p>
+                <input type="file" id="file-input" accept=".cst,.cct,.dxr,.dir">
+                <label for="file-input" class="file-button">Choose File</label>
+            </div>
+            <div id="file-info" class="hidden">
+                <span id="file-name"></span>
+                <button id="clear-btn">Clear</button>
+            </div>
+        </section>
+
+        <section id="loading-section" class="hidden">
+            <div class="spinner"></div>
+            <p>Processing file...</p>
+        </section>
+
+        <section id="error-section" class="hidden">
+            <h2>Error</h2>
+            <pre id="error-message"></pre>
+            <button id="error-dismiss">Dismiss</button>
+        </section>
+
+        <section id="editor-section" class="hidden">
+            <div id="member-panel">
+                <h3>Cast Members</h3>
+                <ul id="member-list"></ul>
+            </div>
+            <div id="edit-panel" class="hidden">
+                <h3>Edit Member</h3>
+                <div id="edit-form">
+                    <div class="form-group">
+                        <label>Member ID</label>
+                        <div id="member-id" class="readonly"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Type</label>
+                        <div id="member-type" class="readonly"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="member-name">Name</label>
+                        <input type="text" id="member-name" placeholder="Enter member name">
+                    </div>
+                </div>
+                <div id="action-buttons">
+                    <button id="save-btn" disabled>Apply Changes</button>
+                    <button id="export-btn" disabled>Export File</button>
+                </div>
+                <div id="edit-status">
+                    Select a member to edit its properties
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>ProjectorRays - <a href="https://github.com/ProjectorRays/ProjectorRays" target="_blank">GitHub</a> | <a href="index.html">Back to Viewer</a></p>
+        <p>Cast Editor - Edit member names and export modified files</p>
+    </footer>
+
+    <!-- pako for zlib decompression -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+
+    <script type="module" src="js/editor.js"></script>
+</body>
+</html>

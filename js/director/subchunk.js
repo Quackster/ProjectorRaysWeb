@@ -90,6 +90,12 @@ export class KeyTableEntry {
         this.fourCC = stream.readUint32();
     }
 
+    write(stream) {
+        stream.writeInt32(this.sectionID);
+        stream.writeInt32(this.castID);
+        stream.writeUint32(this.fourCC);
+    }
+
     toJSON() {
         return {
             sectionID: this.sectionID,

@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-import { ReadStream, BufferView } from '../stream.js';
+import { ReadStream, WriteStream, BufferView } from '../stream.js';
 import { Endianness, FOURCC, fourCCToString } from '../lingodec/enums.js';
 import { MemoryMapEntry, KeyTableEntry, CastListEntry } from './subchunk.js';
 
@@ -183,6 +183,17 @@ export class CastChunk extends Chunk {
         }
     }
 
+    write(stream) {
+        stream.endianness = Endianness.kBigEndian;
+        for (const id of this.memberIDs) {
+            stream.writeInt32(id);
+        }
+    }
+
+    size() {
+        return this.memberIDs.length * 4;
+    }
+
     populate(castName, id, minMember) {
         this.name = castName;
         console.log('CastChunk.populate:', castName, 'id:', id, 'minMember:', minMember);
@@ -298,6 +309,64 @@ export class CastInfoChunk extends ListChunk {
         this.flags = stream.readUint32();
         this.scriptId = stream.readUint32();
     }
+
+    write(stream) {
+        // Calculate sizes for items
+        const scriptSrcBytes = new TextEncoder().encode(this.scriptSrcText);
+        const nameLen = this.name.length;
+
+        // Calculate item sizes
+        const items = [
+            scriptSrcBytes,  // Item 0: scriptSrcText
+            null             // Item 1: name (pascal string)
+        ];
+
+        // Calculate offset table
+        const offsetTableLen = 2;
+        const itemsStart = 20 + 2 + offsetTableLen * 4 + 4; // header + offsetTableLen + offsets + itemsLen
+
+        // Build items data
+        let itemsData = [];
+
+        // Item 0: scriptSrcText (raw string bytes)
+        itemsData.push(...scriptSrcBytes);
+        const item0End = itemsData.length;
+
+        // Item 1: name (pascal string)
+        itemsData.push(nameLen);
+        for (let i = 0; i < nameLen; i++) {
+            itemsData.push(this.name.charCodeAt(i) & 0xff);
+        }
+        const item1End = itemsData.length;
+
+        // Write header
+        const dataOffset = 20; // Fixed position after header
+        stream.writeUint32(dataOffset);
+        stream.writeUint32(this.unk1);
+        stream.writeUint32(this.unk2);
+        stream.writeUint32(this.flags);
+        stream.writeUint32(this.scriptId);
+
+        // Write offset table length
+        stream.writeUint16(offsetTableLen);
+
+        // Write offset table
+        stream.writeUint32(0);        // Offset to item 0
+        stream.writeUint32(item0End); // Offset to item 1
+
+        // Write items length
+        stream.writeUint32(item1End);
+
+        // Write items data
+        stream.writeBytes(new Uint8Array(itemsData));
+    }
+
+    size() {
+        const scriptSrcBytes = new TextEncoder().encode(this.scriptSrcText);
+        const nameLen = this.name.length;
+        // Header (20) + offsetTableLen (2) + offsets (8) + itemsLen (4) + scriptSrc + pascal string
+        return 20 + 2 + 8 + 4 + scriptSrcBytes.length + 1 + nameLen;
+    }
 }
 
 /**
@@ -403,6 +472,101 @@ export class CastMemberChunk extends Chunk {
             return this.info.name;
         }
         return '';
+    }
+
+    setName(name) {
+        if (!this.info) {
+            console.warn('Tried to set name on member with no info!');
+            return;
+        }
+        this.info.name = name;
+    }
+
+    write(stream) {
+        stream.endianness = Endianness.kBigEndian;
+
+        // For D5+ format
+        if (this.dir.version >= 500) {
+            // Write type
+            stream.writeUint32(this.type);
+
+            // Calculate info size
+            let infoSize = 0;
+            let infoBytes = null;
+            if (this.info) {
+                infoSize = this.info.size();
+                infoBytes = new Uint8Array(infoSize);
+                const infoStream = new WriteStream(infoBytes, Endianness.kBigEndian);
+                this.info.write(infoStream);
+            }
+
+            // Write lengths
+            stream.writeUint32(infoSize);
+            stream.writeUint32(this.specificData ? this.specificData.byteLength : 0);
+
+            // Write info
+            if (infoBytes) {
+                stream.writeBytes(infoBytes);
+            }
+
+            // Write specific data
+            if (this.specificData) {
+                const specificDataArray = this.specificData instanceof BufferView
+                    ? this.specificData.data
+                    : new Uint8Array(this.specificData.buffer || this.specificData);
+                stream.writeBytes(specificDataArray);
+            }
+        } else {
+            // Pre-D5 format
+            const specificDataLen = (this.specificData ? this.specificData.byteLength : 0) + 1 + (this.hasFlags1 ? 1 : 0);
+
+            // Calculate info size
+            let infoSize = 0;
+            let infoBytes = null;
+            if (this.info) {
+                infoSize = this.info.size();
+                infoBytes = new Uint8Array(infoSize);
+                const infoStream = new WriteStream(infoBytes, Endianness.kBigEndian);
+                this.info.write(infoStream);
+            }
+
+            stream.writeUint16(specificDataLen);
+            stream.writeUint32(infoSize);
+
+            // Write type byte
+            stream.writeUint8(this.type);
+
+            // Write flags1 if present
+            if (this.hasFlags1) {
+                stream.writeUint8(this.flags1);
+            }
+
+            // Write specific data
+            if (this.specificData) {
+                const specificDataArray = this.specificData instanceof BufferView
+                    ? this.specificData.data
+                    : new Uint8Array(this.specificData.buffer || this.specificData);
+                stream.writeBytes(specificDataArray);
+            }
+
+            // Write info
+            if (infoBytes) {
+                stream.writeBytes(infoBytes);
+            }
+        }
+    }
+
+    size() {
+        const specificDataLen = this.specificData ? this.specificData.byteLength : 0;
+        const infoLen = this.info ? this.info.size() : 0;
+
+        if (this.dir.version >= 500) {
+            // D5+ format: type (4) + infoLen (4) + specificDataLen (4) + info + specificData
+            return 12 + infoLen + specificDataLen;
+        } else {
+            // Pre-D5: specificDataLen (2) + infoLen (4) + type (1) + flags1? (1) + specificData + info
+            return 6 + 1 + (this.hasFlags1 ? 1 : 0) + specificDataLen + infoLen;
+        }
     }
 }
 
@@ -520,6 +684,22 @@ export class KeyTableChunk extends Chunk {
             this.entries.push(entry);
         }
     }
+
+    write(stream) {
+        stream.writeUint16(this.entrySize);
+        stream.writeUint16(this.entrySize2);
+        stream.writeUint32(this.entryCount);
+        stream.writeUint32(this.usedCount);
+
+        for (const entry of this.entries) {
+            entry.write(stream);
+        }
+    }
+
+    size() {
+        // Header (12 bytes) + entries (12 bytes each)
+        return 12 + this.entries.length * 12;
+    }
 }
 
 /**
@@ -547,5 +727,24 @@ export class MemoryMapChunk extends Chunk {
             entry.read(stream);
             this.mapArray.push(entry);
         }
+    }
+
+    write(stream) {
+        stream.writeInt16(this.headerLength);
+        stream.writeInt16(this.entryLength);
+        stream.writeInt32(this.chunkCountMax);
+        stream.writeInt32(this.chunkCountUsed);
+        stream.writeInt32(this.junkHead);
+        stream.writeInt32(this.junkHead2);
+        stream.writeInt32(this.freeHead);
+
+        for (const entry of this.mapArray) {
+            entry.write(stream);
+        }
+    }
+
+    size() {
+        // Header (24 bytes) + entries (20 bytes each)
+        return 24 + this.mapArray.length * 20;
     }
 }
