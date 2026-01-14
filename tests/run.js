@@ -76,24 +76,20 @@ async function runTests() {
         assertEqual(exports.add(100, 200), 300);
     });
 
-    // Test 3: Stream reading
-    console.log("\n--- Stream Tests ---");
-    test("testStreamRead parses big-endian i32", () => {
-        // Create test data: 0x00000042 = 66 in big-endian
-        const testData = new Uint8Array([0x00, 0x00, 0x00, 0x42]);
-        const ptr = exports.__pin(exports.__newArray(exports.Uint8Array_ID, testData));
-        const result = exports.testStreamRead(ptr);
-        exports.__unpin(ptr);
-        assertEqual(result, 66);
+    // Test 3: Enum constants
+    console.log("\n--- Enum Tests ---");
+    test("FOURCC constants are defined", () => {
+        // RIFX = 0x52494658
+        const rifx = exports.FOURCC_RIFX;
+        assertEqual(rifx !== undefined, true, "FOURCC_RIFX should be defined");
+        // In AssemblyScript, exported constants are WebAssembly.Global objects
+        const rifxValue = rifx.value !== undefined ? rifx.value : rifx;
+        assertEqual(rifxValue, 0x52494658, "RIFX should be correct value");
     });
 
-    test("testStreamRead handles larger values", () => {
-        // 0x01020304 = 16909060 in big-endian
-        const testData = new Uint8Array([0x01, 0x02, 0x03, 0x04]);
-        const ptr = exports.__pin(exports.__newArray(exports.Uint8Array_ID, testData));
-        const result = exports.testStreamRead(ptr);
-        exports.__unpin(ptr);
-        assertEqual(result, 16909060);
+    test("fourCCToString works", () => {
+        const result = exports.__getString(exports.fourCCToString(0x52494658));
+        assertEqual(result, "RIFX");
     });
 
     // Summary

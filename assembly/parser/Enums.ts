@@ -202,10 +202,10 @@ export const FOURCC_FGDC: u32 = FOURCC(0x46, 0x47, 0x44, 0x43); // "FGDC"
 
 // Convert FOURCC to string (for debugging)
 export function fourCCToString(fourCC: u32): string {
-    return String.fromCharCode(
-        (fourCC >> 24) & 0xFF,
-        (fourCC >> 16) & 0xFF,
-        (fourCC >> 8) & 0xFF,
-        fourCC & 0xFF
+    return (
+        String.fromCharCode((fourCC >> 24) & 0xFF) +
+        String.fromCharCode((fourCC >> 16) & 0xFF) +
+        String.fromCharCode((fourCC >> 8) & 0xFF) +
+        String.fromCharCode(fourCC & 0xFF)
     );
 }

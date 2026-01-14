@@ -4,8 +4,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-// Parser module exports
+// Stream I/O
 export { ReadStream, WriteStream } from "./Stream";
+
+// Enums and constants
 export {
     Endianness,
     OpCode,
@@ -26,3 +28,35 @@ export {
     FOURCC_FGDM,
     FOURCC_FGDC
 } from "./Enums";
+
+// Subchunk types
+export {
+    CastListEntry,
+    MemoryMapEntry,
+    KeyTableEntry,
+    MoaID,
+    ChunkInfo,
+    NULL_COMPRESSION_GUID,
+    ZLIB_COMPRESSION_GUID,
+    SND_COMPRESSION_GUID
+} from "./Subchunk";
+
+// Chunk types
+export {
+    humanVersion,
+    InitialMapChunk,
+    MemoryMapChunk,
+    KeyTableChunk,
+    ConfigChunk,
+    CastInfoChunk,
+    CastMemberChunk,
+    CastChunk,
+    CastListChunk
+} from "./Chunk";
+
+// Director file parser
+export {
+    DirectorFile,
+    createDirectorFile,
+    parseDirectorFile
+} from "./DirectorFile";
