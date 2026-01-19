@@ -3,6 +3,8 @@
 
 It is a port of the C++ version of [ProjectorRays](https://github.com/ProjectorRays/ProjectorRays). 
 
+**Demo:** https://hax.oldskooler.org/
+
 # Features
 Browser-Native: No executable downloads or command-line tools required. Works entirely within your web browser.
 
