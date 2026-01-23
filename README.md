@@ -8,7 +8,7 @@ It is a port of the C++ version of [ProjectorRays](https://github.com/ProjectorR
 # Features
 Browser-Native: No executable downloads or command-line tools required. Works entirely within your web browser.
 
-Local Processing: Your files never leave your computer. All decompilation happens locally via WebAssembly, ensuring privacy and speed.
+Local Processing: Your files never leave your computer. All decompilation happens locally, ensuring privacy and speed.
 
 ## File Support:
 
