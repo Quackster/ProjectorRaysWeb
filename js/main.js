@@ -344,13 +344,25 @@ function findAssetDataChunk(dirFile, cast, memberId, memberType, member) {
 }
 
 function getScriptName(scriptChunk) {
+    // First, try to get the name from the cast member (like ProjectorRays does)
+    // This is the actual script name set in Director
+    if (scriptChunk.member && scriptChunk.member.getName()) {
+        return scriptChunk.member.getName();
+    }
+
     const script = scriptChunk.script;
+
+    // Factory scripts have a factory name
     if (script.factoryName) {
         return script.factoryName;
     }
-    if (script.handlers.length > 0 && script.handlers[0].name) {
-        return script.handlers[0].name;
+
+    // Fallback to member ID if available
+    if (scriptChunk.member) {
+        return 'Script ' + scriptChunk.member.id;
     }
+
+    // Last resort: script number
     return 'Script ' + script.scriptNumber;
 }
 
