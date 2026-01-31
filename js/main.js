@@ -872,13 +872,38 @@ function parseBitmapPaletteId(specificData, version) {
         console.warn('Error parsing palette ID:', e);
     }
 
-	paletteId = 0;
     console.log('Parsed palette ID:', paletteId, 'castLib:', castLib);
     return { paletteId, castLib };
 }
 
+// Helper: Try to resolve a CLUT palette from a cast member chunk ID
+function resolvePaletteFromChunkId(chunkId) {
+    if (!currentDirFile || !currentDirFile.keyTable) {
+        return null;
+    }
+
+    const clutFourCC = FOURCC('C', 'L', 'U', 'T');
+    for (const entry of currentDirFile.keyTable.entries) {
+        if (entry.castID === chunkId && entry.fourCC === clutFourCC) {
+            try {
+                const clutData = currentDirFile.getChunkData(clutFourCC, entry.sectionID);
+                if (clutData) {
+                    return {
+                        palette: parseCLUTChunk(clutData),
+                        name: `Custom Palette #${chunkId}`,
+                        id: chunkId
+                    };
+                }
+            } catch (e) {
+                console.warn('Error loading CLUT chunk:', e);
+            }
+        }
+    }
+    return null;
+}
+
 // Get the palette for a bitmap by looking up its palette reference
-// Following ScummVM's approach: negative IDs are built-in, positive are cast members
+// Uses multiple fallback strategies following LibreShockwave's approach
 function getPaletteForBitmap(bitmapMember) {
     const version = currentDirFile?.version || 500;
     const { paletteId, castLib } = parseBitmapPaletteId(bitmapMember.specificData, version);
@@ -893,33 +918,95 @@ function getPaletteForBitmap(bitmapMember) {
         };
     }
 
-    // Cast member palette (positive ID) - look up CLUT chunk
-    if (paletteId > 0 && currentDirFile) {
-        try {
-            const keyTable = currentDirFile.keyTable;
-            if (keyTable) {
-                const clutFourCC = FOURCC('C', 'L', 'U', 'T');
-                for (const entry of keyTable.entries) {
-                    if (entry.castID === paletteId && entry.fourCC === clutFourCC) {
-                        const clutData = currentDirFile.getChunkData(clutFourCC, entry.sectionID);
-                        if (clutData) {
-                            console.log('Found CLUT palette for cast member ID:', paletteId);
-                            return {
-                                palette: parseCLUTChunk(clutData),
-                                name: `Cast Member #${paletteId}`,
-                                id: paletteId
-                            };
-                        }
-                    }
+    if (!currentDirFile) {
+        return {
+            palette: getBuiltInPalette(PaletteType.kClutSystemMac),
+            name: 'System - Mac',
+            id: PaletteType.kClutSystemMac
+        };
+    }
+
+    // Strategy 1: paletteId might be the member number - 1 (after parsing adjustment)
+    // Convert to member number and search in cast arrays
+    const memberNumber = paletteId + 1;
+    for (const cast of currentDirFile.casts) {
+        const index = memberNumber - 1;
+        if (index >= 0 && index < cast.memberIDs.length) {
+            const chunkId = cast.memberIDs[index];
+            if (chunkId > 0) {
+                const resolved = resolvePaletteFromChunkId(chunkId);
+                if (resolved) {
+                    console.log('Strategy 1: Found palette via member number', memberNumber);
+                    return resolved;
                 }
             }
+        }
+    }
+
+    // Strategy 2: paletteId might be directly a chunk section ID for a CastMemberChunk
+    let resolved = resolvePaletteFromChunkId(paletteId);
+    if (resolved) {
+        console.log('Strategy 2: Found palette via direct chunk ID', paletteId);
+        return resolved;
+    }
+
+    // Strategy 2b: paletteId might directly reference a CLUT chunk section ID
+    const clutFourCC = FOURCC('C', 'L', 'U', 'T');
+    const clutIds = currentDirFile.chunkIDsByFourCC.get(clutFourCC) || [];
+    for (const clutId of clutIds) {
+        if (clutId === paletteId || clutId === paletteId + 1) {
+            try {
+                const clutData = currentDirFile.getChunkData(clutFourCC, clutId);
+                if (clutData) {
+                    console.log('Strategy 2b: Found palette via CLUT chunk ID', clutId);
+                    return {
+                        palette: parseCLUTChunk(clutData),
+                        name: `Custom Palette #${clutId}`,
+                        id: clutId
+                    };
+                }
+            } catch (e) {
+                console.warn('Error loading CLUT chunk:', e);
+            }
+        }
+    }
+
+    // Strategy 3: paletteId might be the 1-based index among palette cast members
+    let paletteIndex = 0;
+    for (const cast of currentDirFile.casts) {
+        for (const [memberId, member] of cast.members) {
+            if (member.type === MemberType.kPaletteMember) {
+                if (paletteIndex === paletteId) {
+                    resolved = resolvePaletteFromChunkId(member.castSectionID);
+                    if (resolved) {
+                        console.log('Strategy 3: Found palette via palette member index', paletteIndex);
+                        return resolved;
+                    }
+                }
+                paletteIndex++;
+            }
+        }
+    }
+
+    // Strategy 4: Return first available CLUT palette
+    if (clutIds.length > 0) {
+        try {
+            const clutData = currentDirFile.getChunkData(clutFourCC, clutIds[0]);
+            if (clutData) {
+                console.log('Strategy 4: Using first available CLUT palette');
+                return {
+                    palette: parseCLUTChunk(clutData),
+                    name: 'Custom Palette',
+                    id: clutIds[0]
+                };
+            }
         } catch (e) {
-            console.warn('Error looking up CLUT palette:', e);
+            console.warn('Error loading first CLUT chunk:', e);
         }
     }
 
     // Default fallback to Mac System palette
-    console.log('Using default Mac System palette');
+    console.log('Using default Mac System palette (no custom palette found)');
     return {
         palette: getBuiltInPalette(PaletteType.kClutSystemMac),
         name: 'System - Mac',
@@ -1669,6 +1756,147 @@ function detectSoundFormat(bytes) {
     return { format: 'unknown', mimeType: 'application/octet-stream', ext: '.snd' };
 }
 
+// Convert AIFF to WAV format for cross-browser playback
+// (AIFF only plays natively in Safari)
+function convertAiffToWav(aiffBytes) {
+    try {
+        const view = new DataView(aiffBytes.buffer, aiffBytes.byteOffset, aiffBytes.byteLength);
+
+        // Verify FORM header
+        const form = String.fromCharCode(aiffBytes[0], aiffBytes[1], aiffBytes[2], aiffBytes[3]);
+        if (form !== 'FORM') return null;
+
+        const formType = String.fromCharCode(aiffBytes[8], aiffBytes[9], aiffBytes[10], aiffBytes[11]);
+        const isAifc = formType === 'AIFC';
+
+        let numChannels = 1;
+        let numSampleFrames = 0;
+        let bitsPerSample = 8;
+        let sampleRate = 22050;
+        let soundDataOffset = 0;
+        let soundDataSize = 0;
+        let compressionType = 'NONE';
+
+        // Parse chunks
+        let offset = 12;
+        while (offset < aiffBytes.length - 8) {
+            const chunkId = String.fromCharCode(
+                aiffBytes[offset], aiffBytes[offset + 1],
+                aiffBytes[offset + 2], aiffBytes[offset + 3]
+            );
+            const chunkSize = view.getUint32(offset + 4, false); // Big-endian
+            offset += 8;
+
+            if (chunkId === 'COMM') {
+                numChannels = view.getInt16(offset, false);
+                numSampleFrames = view.getUint32(offset + 2, false);
+                bitsPerSample = view.getInt16(offset + 6, false);
+
+                // Sample rate is 80-bit IEEE 754 extended precision
+                // Simplified parsing for common rates
+                const exp = view.getUint16(offset + 8, false);
+                const mantissa = view.getUint32(offset + 10, false);
+                // Convert 80-bit extended to double (simplified)
+                const bias = 16383;
+                const e = (exp & 0x7FFF) - bias;
+                sampleRate = Math.round(mantissa * Math.pow(2, e - 31));
+
+                if (sampleRate < 1000 || sampleRate > 96000) sampleRate = 22050;
+
+                if (isAifc && chunkSize >= 22) {
+                    compressionType = String.fromCharCode(
+                        aiffBytes[offset + 18], aiffBytes[offset + 19],
+                        aiffBytes[offset + 20], aiffBytes[offset + 21]
+                    );
+                }
+            } else if (chunkId === 'SSND') {
+                const dataOffset = view.getUint32(offset, false);
+                soundDataOffset = offset + 8 + dataOffset;
+                soundDataSize = chunkSize - 8 - dataOffset;
+            }
+
+            // Move to next chunk (chunks are word-aligned)
+            offset += chunkSize + (chunkSize % 2);
+        }
+
+        if (soundDataOffset === 0 || soundDataSize === 0) {
+            return null;
+        }
+
+        // Only support uncompressed AIFF (NONE, raw, twos)
+        if (isAifc && compressionType !== 'NONE' && compressionType !== 'raw ' && compressionType !== 'twos') {
+            console.warn('Compressed AIFF not supported:', compressionType);
+            return null;
+        }
+
+        // Extract PCM data
+        let pcmData = aiffBytes.slice(soundDataOffset, soundDataOffset + soundDataSize);
+
+        // AIFF uses big-endian samples, WAV uses little-endian
+        // Convert if more than 8 bits
+        const bytesPerSample = Math.ceil(bitsPerSample / 8);
+        if (bytesPerSample === 2) {
+            // Swap byte order for 16-bit samples
+            const swapped = new Uint8Array(pcmData.length);
+            for (let i = 0; i < pcmData.length; i += 2) {
+                swapped[i] = pcmData[i + 1];
+                swapped[i + 1] = pcmData[i];
+            }
+            pcmData = swapped;
+        } else if (bytesPerSample === 3) {
+            // Swap byte order for 24-bit samples
+            const swapped = new Uint8Array(pcmData.length);
+            for (let i = 0; i < pcmData.length; i += 3) {
+                swapped[i] = pcmData[i + 2];
+                swapped[i + 1] = pcmData[i + 1];
+                swapped[i + 2] = pcmData[i];
+            }
+            pcmData = swapped;
+        } else if (bytesPerSample === 4) {
+            // Swap byte order for 32-bit samples
+            const swapped = new Uint8Array(pcmData.length);
+            for (let i = 0; i < pcmData.length; i += 4) {
+                swapped[i] = pcmData[i + 3];
+                swapped[i + 1] = pcmData[i + 2];
+                swapped[i + 2] = pcmData[i + 1];
+                swapped[i + 3] = pcmData[i];
+            }
+            pcmData = swapped;
+        }
+
+        // Build WAV file
+        const wavSize = 44 + pcmData.length;
+        const wavBuffer = new ArrayBuffer(wavSize);
+        const wavView = new DataView(wavBuffer);
+        const wavBytes = new Uint8Array(wavBuffer);
+
+        // RIFF header
+        wavBytes.set([0x52, 0x49, 0x46, 0x46], 0); // 'RIFF'
+        wavView.setUint32(4, wavSize - 8, true);
+        wavBytes.set([0x57, 0x41, 0x56, 0x45], 8); // 'WAVE'
+
+        // fmt chunk
+        wavBytes.set([0x66, 0x6D, 0x74, 0x20], 12); // 'fmt '
+        wavView.setUint32(16, 16, true); // Chunk size
+        wavView.setUint16(20, 1, true); // Audio format (PCM)
+        wavView.setUint16(22, numChannels, true);
+        wavView.setUint32(24, sampleRate, true);
+        wavView.setUint32(28, sampleRate * numChannels * bytesPerSample, true); // Byte rate
+        wavView.setUint16(32, numChannels * bytesPerSample, true); // Block align
+        wavView.setUint16(34, bitsPerSample, true);
+
+        // data chunk
+        wavBytes.set([0x64, 0x61, 0x74, 0x61], 36); // 'data'
+        wavView.setUint32(40, pcmData.length, true);
+        wavBytes.set(pcmData, 44);
+
+        return { data: wavBytes, sampleRate, numChannels, bitsPerSample, numSamples: numSampleFrames };
+    } catch (e) {
+        console.error('Error converting AIFF to WAV:', e);
+        return null;
+    }
+}
+
 // Convert Mac SND resource to WAV format for browser playback
 function convertSndToWav(sndBytes) {
     try {
@@ -1816,11 +2044,26 @@ function displaySound(asset) {
         let audioBlob = null;
         let mimeType = formatInfo.mimeType;
 
-        if (formatInfo.format === 'aiff' || formatInfo.format === 'wav' || formatInfo.format === 'mp3') {
-            // These formats may be playable directly by the browser
+        if (formatInfo.format === 'wav' || formatInfo.format === 'mp3') {
+            // WAV and MP3 are playable directly by modern browsers
             audioBlob = new Blob([soundBytes], { type: mimeType });
+        } else if (formatInfo.format === 'aiff') {
+            // AIFF only plays in Safari, convert to WAV for cross-browser support
+            const wavResult = convertAiffToWav(soundBytes);
+            if (wavResult) {
+                audioBlob = new Blob([wavResult.data], { type: 'audio/wav' });
+                mimeType = 'audio/wav';
+                assetInfo.innerHTML += `
+                    <p><strong>Sample Rate:</strong> ${wavResult.sampleRate} Hz</p>
+                    <p><strong>Channels:</strong> ${wavResult.numChannels}</p>
+                    <p><strong>Bits:</strong> ${wavResult.bitsPerSample}-bit</p>
+                `;
+            } else {
+                // Fallback to native AIFF (might work in Safari)
+                audioBlob = new Blob([soundBytes], { type: mimeType });
+            }
         } else if (formatInfo.format === 'snd') {
-            // Try to convert Mac SND to WAV
+            // Convert Mac SND to WAV
             const wavResult = convertSndToWav(soundBytes);
             if (wavResult) {
                 audioBlob = new Blob([wavResult.data], { type: 'audio/wav' });
