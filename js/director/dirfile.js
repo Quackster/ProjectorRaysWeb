@@ -663,12 +663,14 @@ export class ScriptContextChunk {
             this.lnam = this.dir.getChunk(FOURCC('L', 'n', 'a', 'm'), this.lnamSectionID);
         }
 
-        // Load scripts
-        for (const entry of this.sectionMap) {
+        // Load scripts - key by 1-based index like C++ ProjectorRays does
+        // The scriptId in CastInfoChunk refers to this index, not script.scriptNumber
+        for (let i = 0; i < this.sectionMap.length; i++) {
+            const entry = this.sectionMap[i];
             if (entry.sectionID >= 0 && this.dir.chunkExists(FOURCC('L', 's', 'c', 'r'), entry.sectionID)) {
                 const script = this.dir.getChunk(FOURCC('L', 's', 'c', 'r'), entry.sectionID);
                 script.setContext(this);
-                this.scripts.set(script.scriptNumber, script);
+                this.scripts.set(i + 1, script);  // 1-based index
             }
         }
     }
