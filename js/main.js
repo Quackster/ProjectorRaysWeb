@@ -17,6 +17,7 @@ let assets = [];
 let selectedScript = null;
 let selectedAsset = null;
 let currentTab = 'scripts';
+let currentCodeView = 'lingo';
 
 // DOM elements
 const dropZone = document.getElementById('drop-zone');
@@ -38,6 +39,8 @@ const dotSyntaxCheckbox = document.getElementById('dot-syntax');
 const copyBtn = document.getElementById('copy-btn');
 const tabButtons = document.querySelectorAll('.tab-btn');
 const tabContents = document.querySelectorAll('.tab-content');
+const codeViewButtons = document.querySelectorAll('.code-view-btn');
+const dotSyntaxLabel = document.getElementById('dot-syntax-label');
 const codePanel = document.getElementById('code-panel');
 const assetPanel = document.getElementById('asset-panel');
 const currentAssetName = document.getElementById('current-asset-name');
@@ -87,6 +90,11 @@ function init() {
     // Tab switching
     tabButtons.forEach(btn => {
         btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    // Code view switching (Lingo/LASM)
+    codeViewButtons.forEach(btn => {
+        btn.addEventListener('click', () => switchCodeView(btn.dataset.view));
     });
 
     // Asset filter controls
@@ -146,6 +154,22 @@ function switchTab(tab) {
         codePanel.classList.add('hidden');
         assetPanel.classList.remove('hidden');
     }
+}
+
+function switchCodeView(view) {
+    currentCodeView = view;
+
+    // Update code view buttons
+    codeViewButtons.forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === view);
+    });
+
+    // Show/hide dot syntax option (only applicable to Lingo view)
+    if (dotSyntaxLabel) {
+        dotSyntaxLabel.style.display = view === 'lingo' ? '' : 'none';
+    }
+
+    refreshCodeDisplay();
 }
 
 function handleDragOver(e) {
@@ -594,6 +618,80 @@ function highlightLingo(code) {
     return highlightedLines.join('\n');
 }
 
+function highlightLasm(code) {
+    const lines = code.split('\n');
+
+    const highlightedLines = lines.map(line => {
+        // Match LASM line format: [pos] opcode [operands] ...translation
+        // Example: [  0] kOpPushInt 5 ...............the value
+
+        // Handle "on" or "method" lines (handler declarations)
+        const handlerMatch = line.match(/^(\s*)(on|method)\s+(.*)$/i);
+        if (handlerMatch) {
+            const indent = escapeHtmlForHighlight(handlerMatch[1]);
+            const keyword = handlerMatch[2];
+            const rest = escapeHtmlForHighlight(handlerMatch[3]);
+            return `${indent}<span class="hl-keyword">${keyword}</span> ${rest}`;
+        }
+
+        // Handle "end" lines
+        if (/^\s*end\s*$/i.test(line)) {
+            return `<span class="hl-keyword">${escapeHtmlForHighlight(line)}</span>`;
+        }
+
+        // Handle property/global/instance declarations
+        const declMatch = line.match(/^(property|global|instance)\s+(.*)$/i);
+        if (declMatch) {
+            const keyword = declMatch[1];
+            const rest = escapeHtmlForHighlight(declMatch[2]);
+            return `<span class="hl-keyword">${keyword}</span> ${rest}`;
+        }
+
+        // Handle factory declaration
+        const factoryMatch = line.match(/^(factory)\s+(.*)$/i);
+        if (factoryMatch) {
+            const keyword = factoryMatch[1];
+            const rest = escapeHtmlForHighlight(factoryMatch[2]);
+            return `<span class="hl-keyword">${keyword}</span> ${rest}`;
+        }
+
+        // Match bytecode instruction lines: [pos] opcode ...
+        const bytecodeMatch = line.match(/^(\s*)(\[\s*\d+\])\s+(\w+)(.*)$/);
+        if (bytecodeMatch) {
+            const indent = escapeHtmlForHighlight(bytecodeMatch[1]);
+            const position = escapeHtmlForHighlight(bytecodeMatch[2]);
+            const opcode = escapeHtmlForHighlight(bytecodeMatch[3]);
+            let rest = bytecodeMatch[4];
+
+            // Check for translation comment (starts with ...)
+            const translationIndex = rest.indexOf('...');
+            let operand = '';
+            let translation = '';
+
+            if (translationIndex >= 0) {
+                operand = escapeHtmlForHighlight(rest.substring(0, translationIndex));
+                translation = escapeHtmlForHighlight(rest.substring(translationIndex));
+            } else {
+                operand = escapeHtmlForHighlight(rest);
+            }
+
+            let result = `${indent}<span class="hl-position">${position}</span> <span class="hl-opcode">${opcode}</span>`;
+            if (operand) {
+                result += `<span class="hl-operand">${operand}</span>`;
+            }
+            if (translation) {
+                result += `<span class="hl-translation">${translation}</span>`;
+            }
+            return result;
+        }
+
+        // Default: escape HTML for any other lines
+        return escapeHtmlForHighlight(line);
+    });
+
+    return highlightedLines.join('\n');
+}
+
 function refreshCodeDisplay() {
     if (!selectedScript) {
         codeDisplay.innerHTML = '';
@@ -603,8 +701,13 @@ function refreshCodeDisplay() {
     const dotSyntax = dotSyntaxCheckbox.checked;
 
     try {
-        const code = selectedScript.script.scriptText('\n', dotSyntax);
-        codeDisplay.innerHTML = highlightLingo(code);
+        if (currentCodeView === 'lasm') {
+            const code = selectedScript.script.bytecodeText('\n', dotSyntax);
+            codeDisplay.innerHTML = highlightLasm(code);
+        } else {
+            const code = selectedScript.script.scriptText('\n', dotSyntax);
+            codeDisplay.innerHTML = highlightLingo(code);
+        }
     } catch (error) {
         console.error('Error generating script text:', error);
         codeDisplay.innerHTML = '<span class="hl-comment">-- Error generating script text: ' + escapeHtmlForHighlight(error.message) + '</span>';
@@ -2308,8 +2411,9 @@ function clearFile() {
     hideContent();
     hideError();
 
-    // Reset to scripts tab
+    // Reset to scripts tab and Lingo view
     switchTab('scripts');
+    switchCodeView('lingo');
 }
 
 // UI visibility helpers

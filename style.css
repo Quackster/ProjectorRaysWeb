@@ -379,6 +379,36 @@ button:active,
   font-size: 11px;
 }
 
+/* Code view tabs (Lingo/LASM) */
+#code-view-tabs {
+  display: inline-block;
+  margin-right: 12px;
+  border: 1px solid #999;
+  background: #e1e1e1;
+}
+
+.code-view-btn {
+  padding: 3px 10px;
+  border: none;
+  background: transparent;
+  color: #000;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.code-view-btn:hover {
+  background: #f1f1f1;
+}
+
+.code-view-btn.active {
+  background: #ffffff;
+}
+
+.code-view-btn + .code-view-btn {
+  border-left: 1px solid #999;
+}
+
 /* Retro code area */
 #code-display {
   font-family: "Courier New", Courier, monospace;
@@ -423,6 +453,25 @@ button:active,
 
 .hl-builtin {
   color: #008080;
+}
+
+/* LASM syntax highlighting */
+.hl-position {
+  color: #666666;
+}
+
+.hl-opcode {
+  color: #0000cc;
+  font-weight: bold;
+}
+
+.hl-operand {
+  color: #cc6600;
+}
+
+.hl-translation {
+  color: #808080;
+  font-style: italic;
 }
 
 /* Asset preview area */
